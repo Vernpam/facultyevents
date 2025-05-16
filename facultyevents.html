@@ -1,0 +1,681 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Calendar</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #e0e7ff, #f3e8ff);
+            color: #333;
+            font-size: clamp(14px, 2.5vw, 16px);
+        }
+        .container {
+            max-width: 1200px;
+            width: 95%;
+            padding: clamp(10px, 3vw, 20px);
+            box-sizing: border-box;
+        }
+        .calendar-container {
+            background: #ffffff;
+            padding: clamp(15px, 3vw, 20px);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            margin-bottom: clamp(15px, 3vw, 20px);
+        }
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: clamp(10px, 2vw, 15px);
+            padding: 0 clamp(5px, 2vw, 10px);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .calendar-header button {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: clamp(6px, 1.5vw, 8px) clamp(10px, 2vw, 12px);
+            font-size: clamp(14px, 2.5vw, 16px);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .calendar-header button:hover {
+            background: #4338ca;
+        }
+        .calendar-header h2 {
+            font-size: clamp(1.2rem, 3vw, 1.5rem);
+            color: #1f2937;
+            margin: 0;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: clamp(4px, 1vw, 8px);
+            padding: clamp(5px, 2vw, 10px);
+        }
+        .calendar-grid div {
+            padding: clamp(8px, 2vw, 12px);
+            text-align: center;
+            border-radius: 8px;
+            transition: background 0.2s;
+            font-size: clamp(12px, 2.2vw, 14px);
+        }
+        .day-name {
+            font-weight: 600;
+            color: #4b5563;
+            background: #f3f4f6;
+        }
+        .date {
+            cursor: pointer;
+            background: #f9fafb;
+            color: #374151;
+        }
+        .date:hover {
+            background: #e5e7eb;
+        }
+        .date.has-event {
+            background: #bbf7d0;
+            color: #166534;
+            font-weight: 500;
+        }
+        .date.today {
+            background: #4f46e5;
+            color: white;
+            font-weight: 600;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        .modal-content {
+            background: #ffffff;
+            padding: clamp(15px, 3vw, 25px);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            text-align: left;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            box-sizing: border-box;
+        }
+        .modal-content h2 {
+            margin: 0 0 clamp(10px, 2vw, 15px);
+            color: #1f2937;
+            font-size: clamp(1rem, 2.5vw, 1.25rem);
+        }
+        .modal-content p {
+            font-size: clamp(12px, 2.2vw, 14px);
+        }
+        .modal-content input {
+            margin: clamp(5px, 1vw, 8px) 0;
+            padding: clamp(8px, 1.5vw, 10px);
+            width: 100%;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: clamp(12px, 2.2vw, 14px);
+            box-sizing: border-box;
+        }
+        .modal-content input:focus {
+            outline: none;
+            border-color: #4f46e5;
+            box-shadow: 0 0 5px rgba(79, 70, 229, 0.3);
+        }
+        .modal-content button {
+            margin: clamp(5px, 1vw, 10px) clamp(2px, 0.5vw, 5px) 0 0;
+            padding: clamp(8px, 1.5vw, 10px) clamp(15px, 2.5vw, 20px);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: clamp(12px, 2.2vw, 14px);
+            transition: background 0.2s;
+        }
+        .modal-content button.save {
+            background: #4f46e5;
+            color: white;
+        }
+        .modal-content button.save:hover {
+            background: #4338ca;
+        }
+        .modal-content button.cancel {
+            background: #ef4444;
+            color: white;
+        }
+        .modal-content button.cancel:hover {
+            background: #dc2626;
+        }
+        .modal-content button.edit, .modal-content button.delete {
+            padding: clamp(4px, 1vw, 5px) clamp(8px, 1.5vw, 10px);
+            font-size: clamp(11px, 2vw, 12px);
+        }
+        .modal-content button.edit {
+            background: #3b82f6;
+            color: white;
+        }
+        .modal-content button.edit:hover {
+            background: #2563eb;
+        }
+        .modal-content button.delete {
+            background: #ef4444;
+            color: white;
+        }
+        .modal-content button.delete:hover {
+            background: #dc2626;
+        }
+        .events-list {
+            margin-top: clamp(10px, 2vw, 15px);
+            max-height: 200px;
+            overflow-y: auto;
+            border-top: 1px solid #e5e7eb;
+            padding-top: clamp(5px, 1vw, 10px);
+        }
+        .event-item {
+            margin: clamp(5px, 1vw, 8px) 0;
+            padding: clamp(6px, 1.5vw, 8px);
+            background: #f9fafb;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: clamp(11px, 2vw, 12px);
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .event-actions {
+            display: flex;
+            gap: clamp(3px, 1vw, 5px);
+        }
+        .dashboard {
+            background: #ffffff;
+            padding: clamp(15px, 3vw, 20px);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .dashboard h2 {
+            font-size: clamp(1rem, 2.5vw, 1.25rem);
+            color: #1f2937;
+            margin: 0 0 clamp(10px, 2vw, 15px);
+        }
+        .dashboard ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .dashboard li {
+            padding: clamp(8px, 1.5vw, 10px);
+            background: #f9fafb;
+            border-radius: 6px;
+            margin: clamp(5px, 1vw, 8px) 0;
+            font-size: clamp(12px, 2.2vw, 14px);
+            color: #374151;
+        }
+        .dashboard li.no-events {
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        /* Media Queries for Mobile and Tablet */
+        @media (max-width: 768px) {
+            .calendar-grid {
+                grid-template-columns: repeat(7, 1fr);
+                gap: clamp(2px, 0.8vw, 4px);
+            }
+            .calendar-grid div {
+                padding: clamp(6px, 1.5vw, 8px);
+                font-size: clamp(10px, 2vw, 12px);
+            }
+            .calendar-header {
+                flex-direction: row;
+                justify-content: space-between;
+                gap: 8px;
+            }
+            .calendar-header button {
+                padding: clamp(5px, 1.2vw, 6px) clamp(8px, 1.8vw, 10px);
+                font-size: clamp(12px, 2.2vw, 14px);
+            }
+            .modal-content {
+                width: 100%;
+                max-width: 90vw;
+                padding: clamp(12px, 2.5vw, 15px);
+            }
+            .modal-content input {
+                font-size: clamp(11px, 2vw, 12px);
+            }
+            .modal-content button {
+                padding: clamp(6px, 1.2vw, 8px) clamp(12px, 2vw, 15px);
+                font-size: clamp(11px, 2vw, 12px);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                width: 98%;
+                padding: clamp(8px, 2vw, 10px);
+            }
+            .calendar-grid {
+                grid-template-columns: repeat(7, 1fr);
+                gap: clamp(1px, 0.5vw, 2px);
+            }
+            .calendar-grid div {
+                padding: clamp(4px, 1vw, 6px);
+                font-size: clamp(9px, 1.8vw, 10px);
+            }
+            .calendar-header h2 {
+                font-size: clamp(1rem, 2.5vw, 1.2rem);
+            }
+            .calendar-header button {
+                padding: clamp(4px, 1vw, 5px) clamp(6px, 1.5vw, 8px);
+                font-size: clamp(10px, 2vw, 12px);
+            }
+            .modal-content {
+                max-width: 95vw;
+                padding: clamp(10px, 2vw, 12px);
+            }
+            .event-item {
+                flex-direction: column;
+                align-items: flex-start;
+                font-size: clamp(10px, 1.8vw, 11px);
+            }
+            .event-actions {
+                margin-top: 5px;
+                width: 100%;
+                justify-content: flex-end;
+            }
+            .dashboard li {
+                font-size: clamp(11px, 2vw, 12px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="calendar-container">
+            <div class="calendar-header">
+                <button onclick="prevMonth()"><</button>
+                <h2 id="month-year"></h2>
+                <button onclick="nextMonth()">></button>
+            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
+        </div>
+        <div class="dashboard">
+            <h2>Upcoming Events (Next 7 Days)</h2>
+            <ul id="upcoming-events"></ul>
+        </div>
+    </div>
+    <div class="modal" id="event-modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Add Event</h2>
+            <p id="selected-date"></p>
+            <input type="text" id="event-title" placeholder="Event Title">
+            <input type="text" id="event-organizer" placeholder="Event Organizer Name">
+            <input type="time" id="event-start-time" placeholder="Start Time">
+            <input type="time" id="event-end-time" placeholder="End Time">
+            <button id="save-event-btn" class="save" onclick="saveEvent()">Add Event</button>
+            <button class="cancel" onclick="closeModal()">Cancel</button>
+            <div class="events-list" id="events-list"></div>
+        </div>
+    </div>
+    <script>
+        let currentDate = new Date();
+        let currentMonth = currentDate.getMonth();
+        let currentYear = currentDate.getFullYear();
+        let events = loadEvents();
+        let editingEventIndex = null;
+
+        const monthNames = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ];
+
+        function saveEvents() {
+            localStorage.setItem("calendarEvents", JSON.stringify(events));
+        }
+
+        function loadEvents() {
+            const savedEvents = localStorage.getItem("calendarEvents");
+            return savedEvents ? JSON.parse(savedEvents) : {};
+        }
+
+        function renderCalendar() {
+            const calendarGrid = document.getElementById("calendar-grid");
+            const monthYear = document.getElementById("month-year");
+            calendarGrid.innerHTML = "";
+
+            monthYear.textContent = `${monthNames[currentMonth]} ${currentYear}`;
+
+            // Add day names
+            const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+            days.forEach(day => {
+                const dayDiv = document.createElement("div");
+                dayDiv.className = "day-name";
+                dayDiv.textContent = day;
+                calendarGrid.appendChild(dayDiv);
+            });
+
+            // Get first day of the month
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const today = new Date();
+            const todayDate = today.getDate();
+            const todayMonth = today.getMonth();
+            const todayYear = today.getFullYear();
+
+            // Add empty slots for days before the first day
+            for (let i = 0; i < firstDay; i++) {
+                const emptyDiv = document.createElement("div");
+                calendarGrid.appendChild(emptyDiv);
+            }
+
+            // Add dates
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateDiv = document.createElement("div");
+                dateDiv.className = "date";
+                dateDiv.textContent = day;
+                const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+                if (events[dateKey] && events[dateKey].length > 0) {
+                    dateDiv.className += " has-event";
+                }
+                if (
+                    day === todayDate &&
+                    currentMonth === todayMonth &&
+                    currentYear === todayYear
+                ) {
+                    dateDiv.className += " today";
+                }
+                dateDiv.onclick = () => openModal(day);
+                calendarGrid.appendChild(dateDiv);
+            }
+
+            renderUpcomingEvents();
+        }
+
+        function renderUpcomingEvents() {
+            const upcomingEventsList = document.getElementById("upcoming-events");
+            upcomingEventsList.innerHTML = "";
+            const today = new Date();
+            const endDate = new Date(today);
+            endDate.setDate(today.getDate() + 7);
+
+            let upcomingEvents = [];
+            Object.keys(events).forEach(dateKey => {
+                const [year, month, day] = dateKey.split("-").map(Number);
+                const eventDate = new Date(year, month - 1, day);
+                if (eventDate >= today && eventDate <= endDate) {
+                    events[dateKey].forEach(event => {
+                        upcomingEvents.push({
+                            date: eventDate,
+                            dateKey,
+                            ...event
+                        });
+                    });
+                }
+            });
+
+            upcomingEvents.sort((a, b) => a.date - b.date || a.startTime.localeCompare(b.startTime));
+
+            if (upcomingEvents.length === 0) {
+                const li = document.createElement("li");
+                li.className = "no-events";
+                li.textContent = "No upcoming events in the next 7 days.";
+                upcomingEventsList.appendChild(li);
+            } else {
+                upcomingEvents.forEach(event => {
+                    const li = document.createElement("li");
+                    const dateStr = event.date.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric"
+                    });
+                    li.textContent = `${dateStr}, ${event.startTime} - ${event.endTime} | ${event.title} (by ${event.organizer})`;
+                    upcomingEventsList.appendChild(li);
+                });
+            }
+        }
+
+        function openModal(day) {
+            const modal = document.getElementById("event-modal");
+            const modalTitle = document.getElementById("modal-title");
+            const selectedDate = document.getElementById("selected-date");
+            const eventsList = document.getElementById("events-list");
+            const saveButton = document.getElementById("save-event-btn");
+
+            selectedDate.textContent = `Date: ${monthNames[currentMonth]} ${day}, ${currentYear}`;
+            modalTitle.textContent = "Add Event";
+            saveButton.textContent = "Add Event";
+            editingEventIndex = null;
+
+            eventsList.innerHTML = "";
+            const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+            if (events[dateKey]) {
+                events[dateKey].forEach((event, index) => {
+                    const eventItem = document.createElement("div");
+                    eventItem.className = "event-item";
+                    const eventDetails = document.createElement("span");
+                    eventDetails.textContent = `${event.startTime} - ${event.endTime} | ${event.title} (by ${event.organizer})`;
+                    const actions = document.createElement("div");
+                    actions.className = "event-actions";
+                    const editBtn = document.createElement("button");
+                    editBtn.className = "edit";
+                    editBtn.textContent = "Edit";
+                    editBtn.onclick = () => editEvent(dateKey, index);
+                    const deleteBtn = document.createElement("button");
+                    deleteBtn.className = "delete";
+                    deleteBtn.textContent = "Delete";
+                    deleteBtn.onclick = () => deleteEvent(dateKey, index);
+                    actions.appendChild(editBtn);
+                    actions.appendChild(deleteBtn);
+                    eventItem.appendChild(eventDetails);
+                    eventItem.appendChild(actions);
+                    eventsList.appendChild(eventItem);
+                });
+            }
+
+            modal.style.display = "flex";
+            document.getElementById("event-title").value = "";
+            document.getElementById("event-organizer").value = "";
+            document.getElementById("event-start-time").value = "";
+            document.getElementById("event-end-time").value = "";
+            document.getElementById("event-title").focus();
+        }
+
+        function closeModal() {
+            document.getElementById("event-modal").style.display = "none";
+            editingEventIndex = null;
+        }
+
+        function timeToMinutes(time) {
+            const [hours, minutes] = time.split(":").map(Number);
+            return hours * 60 + minutes;
+        }
+
+        function checkTimeConflicts(dateKey, startTime, endTime, excludeIndex = null) {
+            if (!events[dateKey]) return [];
+            const startMinutes = timeToMinutes(startTime);
+            const endMinutes = timeToMinutes(endTime);
+            const conflicts = [];
+            events[dateKey].forEach((event, index) => {
+                if (excludeIndex !== null && index === excludeIndex) return;
+                const existingStart = timeToMinutes(event.startTime);
+                const existingEnd = timeToMinutes(event.endTime);
+                if (
+                    (startMinutes >= existingStart && startMinutes < existingEnd) ||
+                    (endMinutes > existingStart && endMinutes <= existingEnd) ||
+                    (startMinutes <= existingStart && endMinutes >= existingEnd)
+                ) {
+                    conflicts.push({ event, index });
+                }
+            });
+            return conflicts;
+        }
+
+        function saveEvent() {
+            const title = document.getElementById("event-title").value.trim();
+            const organizer = document.getElementById("event-organizer").value.trim();
+            const startTime = document.getElementById("event-start-time").value;
+            const endTime = document.getElementById("event-end-time").value;
+            const day = parseInt(document.getElementById("selected-date").textContent.match(/\d+/)[0]);
+            const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+
+            if (!title || !organizer || !startTime || !endTime) {
+                alert("Please fill in all fields: Event Title, Organizer, Start Time, and End Time.");
+                return;
+            }
+
+            if (timeToMinutes(startTime) >= timeToMinutes(endTime)) {
+                alert("End time must be after start time.");
+                return;
+            }
+
+            const conflicts = checkTimeConflicts(dateKey, startTime, endTime, editingEventIndex);
+            if (conflicts.length > 0) {
+                let conflictMessage = "Cannot add event due to the following conflicting events:\n";
+                conflicts.forEach(({ event }) => {
+                    conflictMessage += `${event.startTime} - ${event.endTime} | ${event.title} (by ${event.organizer})\n`;
+                });
+                conflictMessage += "Do you want to override these events?";
+                const confirmOverride = confirm(conflictMessage);
+                if (!confirmOverride) {
+                    return;
+                }
+                // Remove conflicting events
+                conflicts.forEach(({ index }) => {
+                    events[dateKey].splice(index, 1);
+                });
+                // Adjust indices after deletion
+                if (editingEventIndex !== null && editingEventIndex > Math.max(...conflicts.map(c => c.index))) {
+                    editingEventIndex -= conflicts.length;
+                }
+            }
+
+            if (!events[dateKey]) {
+                events[dateKey] = [];
+            }
+
+            const newEvent = { title, organizer, startTime, endTime };
+            if (editingEventIndex !== null) {
+                events[dateKey][editingEventIndex] = newEvent;
+            } else {
+                events[dateKey].push(newEvent);
+            }
+
+            saveEvents();
+            closeModal();
+            renderCalendar();
+        }
+
+        function editEvent(dateKey, index) {
+            const event = events[dateKey][index];
+            document.getElementById("event-title").value = event.title;
+            document.getElementById("event-organizer").value = event.organizer;
+            document.getElementById("event-start-time").value = event.startTime;
+            document.getElementById("event-end-time").value = event.endTime;
+            document.getElementById("modal-title").textContent = "Edit Event";
+            document.getElementById("save-event-btn").textContent = "Save Changes";
+            editingEventIndex = index;
+            document.getElementById("event-title").focus();
+        }
+
+        function deleteEvent(dateKey, index) {
+            const confirmDelete = confirm("Are you sure you want to delete this event?");
+            if (confirmDelete) {
+                events[dateKey].splice(index, 1);
+                if (events[dateKey].length === 0) {
+                    delete events[dateKey];
+                }
+                saveEvents();
+                openModal(parseInt(dateKey.split("-")[2])); // Reopen modal for the same day
+                renderCalendar();
+            }
+        }
+
+        function prevMonth() {
+            currentMonth--;
+            if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            }
+            renderCalendar();
+        }
+
+        function nextMonth() {
+            currentMonth++;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
+            renderCalendar();
+        }
+
+        // Initialize calendar
+        renderCalendar();
+
+        // Close modal when clicking outside
+        document.getElementById("event-modal").onclick = function(e) {
+            if (e.target === this) {
+                closeModal();
+            }
+        };
+    </script>
+</body>
+</html>
